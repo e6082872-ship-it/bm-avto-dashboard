@@ -106,8 +106,8 @@ body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;backgrou
         <div class="surface" style="grid-column:span 1">
           <div class="lbl">Фактическое тело</div>
           <div class="big" id="actual-display">—</div>
-          <div style="font-size:11px;color:#888;margin-top:6px;line-height:1.5">
-            = Р/С + Техника + Нам должны + План.маржа − Мы должны
+          <div style="font-size:11px;color:#888;margin-top:6px;line-height:1.6">
+            = Р/С + Техника + Доп.расходы<br>+ Нам должны + План.маржа − Мы должны
           </div>
         </div>
 
@@ -175,6 +175,7 @@ body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;backgrou
               <input class="inp" type="number" id="tech-margin" placeholder="План. маржа ₽" step="10000">
               <button class="btn" onclick="addTech()">+</button>
             </div>
+            <input class="inp" type="number" id="tech-extra" placeholder="Доп. расходы ₽ (ремонт, доставка...)" step="10000">
           </div>
         </div>
         <div style="display:flex;justify-content:space-between;border-top:1px solid #f0f0eb;padding-top:10px;margin-top:10px">
@@ -389,12 +390,14 @@ window.addTech=async function(){
   const date=document.getElementById('tech-date').value;
   const amount=parseFloat(document.getElementById('tech-amount').value)||0;
   const margin=parseFloat(document.getElementById('tech-margin').value)||0;
+  const extra=parseFloat(document.getElementById('tech-extra').value)||0;
   if(!name||!amount)return;
-  const id=Date.now();await fbSet('data/tech/'+id,{id,name,type,date,amount,margin,by:currentUser});
+  const id=Date.now();await fbSet('data/tech/'+id,{id,name,type,date,amount,margin,extra,by:currentUser});
   document.getElementById('tech-name').value='';
   document.getElementById('tech-date').value='';
   document.getElementById('tech-amount').value='';
   document.getElementById('tech-margin').value='';
+  document.getElementById('tech-extra').value='';
 };
 window.removeTech=async function(id){await set(ref(db,'data/tech/'+id),null);};
 window.startEditTech=function(id){editingTech=id;render();};
@@ -405,9 +408,10 @@ window.saveEditTech=async function(id){
   const date=document.getElementById('et-date-'+id).value;
   const amount=parseFloat(document.getElementById('et-amt-'+id).value)||0;
   const margin=parseFloat(document.getElementById('et-mgn-'+id).value)||0;
+  const extra=parseFloat(document.getElementById('et-ext-'+id).value)||0;
   if(!name||!amount)return;
   const item=st.tech.find(t=>t.id===id);
-  await fbSet('data/tech/'+id,{...item,name,type,date,amount,margin});editingTech=null;
+  await fbSet('data/tech/'+id,{...item,name,type,date,amount,margin,extra});editingTech=null;
 };
 
 // ПЛАТЕЖИ
@@ -471,13 +475,14 @@ window.saveEditOwe=async function(id){
 
 function render(){
   const techTotal=st.tech.reduce((a,t)=>a+t.amount,0);
+  const extraTotal=st.tech.reduce((a,t)=>a+(t.extra||0),0);
   const marginTotal=st.tech.reduce((a,t)=>a+(t.margin||0),0);
   const payTotal =st.pay.reduce((a,p)=>a+p.amount,0);
   const recvTotal=st.recv.reduce((a,r)=>a+r.amount,0);
   const oweTotal =st.owe.reduce((a,o)=>a+o.amount,0);
 
-  // ФОРМУЛА: Факт = Р/С + Техника + План.маржа + Нам должны − Мы должны
-  const actual = st.rs + techTotal + marginTotal + recvTotal - oweTotal;
+  // ФОРМУЛА: Факт = Р/С + Техника + Доп.расходы + План.маржа + Нам должны − Мы должны
+  const actual = st.rs + techTotal + extraTotal + marginTotal + recvTotal - oweTotal;
   const hasData = st.rs>0 || techTotal>0;
   // Красный если факт < план (и план задан)
   const bodyLow = st.init>0 && hasData && actual<st.init;
@@ -496,11 +501,15 @@ function render(){
   document.getElementById('rs-display').textContent=st.rs?fmt(st.rs)+' ₽':'—';
   document.getElementById('rs-date').textContent=st.rsDate?'Обновлено: '+st.rsDate:'Обновите сегодня';
 
-  document.getElementById('invested-display').textContent=fmt(techTotal)+' ₽';
-  document.getElementById('tech-total').textContent=fmt(techTotal)+' ₽';
-  // показываем план.маржу в итоге блока техники
+  document.getElementById('invested-display').textContent=fmt(techTotal+extraTotal)+' ₽';
+  document.getElementById('tech-total').textContent=fmt(techTotal+extraTotal)+' ₽';
   const techTotalEl = document.getElementById('tech-total-margin');
-  if(techTotalEl) techTotalEl.textContent = marginTotal ? fmt(marginTotal)+' ₽ план. маржа' : '';
+  if(techTotalEl){
+    let parts=[];
+    if(extraTotal) parts.push(fmt(extraTotal)+' ₽ доп. расходы');
+    if(marginTotal) parts.push(fmt(marginTotal)+' ₽ план. маржа');
+    techTotalEl.textContent=parts.join(' · ');
+  }
   document.getElementById('pay-total').textContent=fmt(payTotal)+' ₽';
   document.getElementById('recv-total').textContent=fmt(recvTotal)+' ₽';
   document.getElementById('owe-total').textContent=fmt(oweTotal)+' ₽';
@@ -531,12 +540,13 @@ function render(){
         <div style="display:flex;gap:6px;margin-top:3px;align-items:center;flex-wrap:wrap">
           <span style="font-size:11px;padding:1px 7px;border-radius:6px;${t.type==='purchase'?'background:#FFF3E0;color:#8a4500':'background:#E8F4FD;color:#1a5276'}">${t.type==='purchase'?'покупка':'бронь'}</span>
           ${t.date?`<span style="font-size:11px;color:#aaa">${new Date(t.date+'T00:00:00').toLocaleDateString('ru-RU')}</span>`:''}
+          ${t.extra?`<span style="font-size:11px;padding:1px 7px;border-radius:6px;background:#f5f0ff;color:#6b3fa0">доп. ${fmt(t.extra)} ₽</span>`:''}
           ${t.margin?`<span style="font-size:11px;padding:1px 7px;border-radius:6px;background:${t.margin<0?'#fff0f0':'#eafaf1'};color:${t.margin<0?'#c0392b':'#1a6b3c'}">план. маржа ${fmt(t.margin)} ₽</span>`:''}
           ${t.by?`<span style="font-size:11px;color:${getU(t.by).color}">· ${t.by}</span>`:''}
         </div>
       </div>
       <div style="display:flex;align-items:center;gap:5px;flex-shrink:0">
-        <b style="color:#854F0B">−${fmt(t.amount)} ₽</b>
+        <b style="color:#854F0B">−${fmt(t.amount+(t.extra||0))} ₽</b>
         <button class="btn-icon" onclick="startEditTech(${t.id})">✏️</button>
         <button class="btn-icon btn-del" onclick="removeTech(${t.id})">✕</button>
       </div></div>`,
@@ -547,8 +557,11 @@ function render(){
           <select class="inp" id="et-type-${t.id}"><option value="purchase" ${t.type==='purchase'?'selected':''}>Покупка</option><option value="deposit" ${t.type==='deposit'?'selected':''}>Бронь</option></select>
           <input class="inp" type="date" id="et-date-${t.id}" value="${t.date||''}">
         </div>
-        <div style="display:grid;grid-template-columns:1fr 1fr auto auto;gap:6px">
-          <input class="inp" type="number" id="et-amt-${t.id}" value="${t.amount}" step="100000" placeholder="Сумма ₽">
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:6px">
+          <input class="inp" type="number" id="et-amt-${t.id}" value="${t.amount}" step="100000" placeholder="Сумма покупки ₽">
+          <input class="inp" type="number" id="et-ext-${t.id}" value="${t.extra||''}" step="10000" placeholder="Доп. расходы ₽">
+        </div>
+        <div style="display:grid;grid-template-columns:1fr auto auto;gap:6px">
           <input class="inp" type="number" id="et-mgn-${t.id}" value="${t.margin||''}" step="10000" placeholder="План. маржа ₽">
           <button class="btn-icon btn-ok" onclick="saveEditTech(${t.id})">✓</button>
           <button class="btn-icon" onclick="cancelEditTech()">✕</button>
